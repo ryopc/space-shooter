@@ -14,12 +14,12 @@ RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 ORANGE = (255, 165, 0)
-PURPLE = (147, 112, 219)  # AI無双モード中の自機の色
+PURPLE = (147, 112, 219)
 
 # Pygameの初期化
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Space Shooter - AI Mode (ryopc)")
+pygame.display.set_caption("Space Shooter - Friendly Mode (ryopc)")
 clock = pygame.time.Clock()
 
 # -------------------------------------------------------------------
@@ -36,41 +36,55 @@ class Player(pygame.sprite.Sprite):
         self.rect.bottom = HEIGHT - 10
         self.speed_x = 8
         
-        # 【追加】AI無双モードの状態フラグ
-        self.ai_mode = False
+        # プレイヤーのステータス（人間に優しい設計）
+        self.hp = 100         # 最大HP
+        self.shoot_delay = 15 # 連射の速さ（15フレームごと）
+        self.last_shot = pygame.time.get_ticks()
+        self.hidden = False
+        self.invulnerable = False
+        self.invulnerable_timer = 0
 
     def update(self):
-        # Zキーが押されたら、AI無双モードを起動（トグル切り替え）
-        # ※押しっぱなし対策のため、メインループのイベントハンドラでも切り替えます
-        
+        # 無敵時間のカウントダウン処理
+        if self.invulnerable and pygame.time.get_ticks() - self.invulnerable_timer > 1000:
+            self.invulnerable = False
+
         if self.ai_mode:
-            # -----------------------------------------------
-            # 🤖 【AI無双モードの思考ロジック】
-            # -----------------------------------------------
-            self.image.fill(PURPLE)  # 無双中は紫に変身！
+            # 🤖 AI無双モード（前回の回避AIロジック）
+            self.image.fill(PURPLE)
+            danger_bullets = [b for b in enemy_bullets if abs(b.rect.centerx - self.rect.centerx) < 100 and b.rect.bottom < self.rect.top]
             
-            # 画面上に敵がいるか確認
-            if len(mobs) > 0:
-                # 一番手前（画面の下側＝y座標が最大）にいる危険な敵をロックオン
-                target_mob = max(mobs, key=lambda m: m.rect.y)
-                
-                # 敵の真下に移動するよう、x座標を合わせる
-                if self.rect.centerx < target_mob.rect.centerx:
-                    self.rect.x += self.speed_x
-                elif self.rect.centerx > target_mob.rect.centerx:
+            if danger_bullets:
+                closest_bullet = min(danger_bullets, key=lambda b: self.rect.top - b.rect.bottom)
+                if closest_bullet.rect.centerx >= self.rect.centerx:
                     self.rect.x -= self.speed_x
-                    
-            # AIは常に超高速で弾を自動連射（3フレームに1発）
+                else:
+                    self.rect.x += self.speed_x
+            else:
+                if len(mobs) > 0:
+                    target_mob = max(mobs, key=lambda m: m.rect.y)
+                    if self.rect.centerx < target_mob.rect.centerx:
+                        self.rect.x += self.speed_x
+                    elif self.rect.centerx > target_mob.rect.centerx:
+                        self.rect.x -= self.speed_x
+            
             if random.random() < 0.3:
                 self.shoot()
         else:
-            # 🧑‍💻 【通常モード（手動操作）】
-            self.image.fill(GREEN)
+            # 🧑‍💻 手動操作モード（無敵中は黄色に点滅）
+            if self.invulnerable:
+                self.image.fill(YELLOW)
+            else:
+                self.image.fill(GREEN)
+                
             keys = pygame.key.get_pressed()
             if keys[pygame.K_LEFT]:
                 self.rect.x -= self.speed_x
             if keys[pygame.K_RIGHT]:
                 self.rect.x += self.speed_x
+            # 【追加】スペースキー長押しで自動連射できるように優しく変更
+            if keys[pygame.K_SPACE]:
+                self.shoot()
             
         # 画面外制限
         if self.rect.left < 0:
@@ -79,9 +93,24 @@ class Player(pygame.sprite.Sprite):
             self.rect.right = WIDTH
 
     def shoot(self):
-        bullet = Bullet(self.rect.centerx, self.rect.top)
-        all_sprites.add(bullet)
-        bullets.add(bullet)
+        now = pygame.time.get_ticks()
+        # 連射タイマーのチェック（手動時は長押し対応、AIは制限なしで無双）
+        if self.ai_mode or now - self.last_shot > self.shoot_delay * 16:
+            self.last_shot = now
+            bullet = Bullet(self.rect.centerx, self.rect.top)
+            all_sprites.add(bullet)
+            bullets.add(bullet)
+
+    # 【追加】ダメージを受けたときの優しさ処理
+    def hit(self, damage):
+        if not self.invulnerable:
+            self.hp -= damage
+            self.invulnerable = True
+            self.invulnerable_timer = pygame.time.get_ticks()
+            if self.hp <= 0:
+                self.hp = 0
+                return True # ゲームオーバー
+        return False
 
 class Mob(pygame.sprite.Sprite):
     def __init__(self):
@@ -91,16 +120,16 @@ class Mob(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.x = random.randrange(WIDTH - self.rect.width)
         self.rect.y = random.randrange(-100, -40)
-        self.speed_y = random.randrange(2, 5)
+        self.speed_y = random.randrange(2, 4) # 人間に優しく最高速度を少し低下
 
     def update(self):
         self.rect.y += self.speed_y
         if self.rect.top > HEIGHT + 10:
             self.rect.x = random.randrange(WIDTH - self.rect.width)
             self.rect.y = random.randrange(-100, -40)
-            self.speed_y = random.randrange(2, 5)
+            self.speed_y = random.randrange(2, 4)
 
-        if random.random() < 0.01:
+        if random.random() < 0.008: # 弾の頻度も少しだけ優しく
             self.shoot()
 
     def shoot(self):
@@ -116,7 +145,7 @@ class Bullet(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.bottom = y
         self.rect.centerx = x
-        self.speed_y = -12  # AI用に少し弾速をアップ
+        self.speed_y = -12
 
     def update(self):
         self.rect.y += self.speed_y
@@ -131,12 +160,25 @@ class EnemyBullet(pygame.sprite.Sprite):
         self.rect = self.image.get_rect()
         self.rect.top = y
         self.rect.centerx = x
-        self.speed_y = 6
+        self.speed_y = 5 # 弾速も少しだけ優しく
 
     def update(self):
         self.rect.y += self.speed_y
         if self.rect.top > HEIGHT:
             self.kill()
+
+# 【追加】HPバーを描画する便利な関数
+def draw_hp_bar(surf, x, y, pct):
+    if pct < 0:
+        pct = 0
+    BAR_LENGTH = 100
+    BAR_HEIGHT = 10
+    fill = (pct / 100) * BAR_LENGTH
+    outline_rect = pygame.Rect(x, y, BAR_LENGTH, BAR_HEIGHT)
+    fill_rect = pygame.Rect(x, y, fill, BAR_HEIGHT)
+    pygame.draw.rect(surf, RED, outline_rect)
+    pygame.draw.rect(surf, GREEN, fill_rect)
+    pygame.draw.rect(surf, WHITE, outline_rect, 1)
 
 # -------------------------------------------------------------------
 # ゲームのメイン処理
@@ -148,6 +190,7 @@ bullets = pygame.sprite.Group()
 enemy_bullets = pygame.sprite.Group()
 
 player = Player()
+player.ai_mode = False # 最初は必ず手動
 all_sprites.add(player)
 
 for i in range(8):
@@ -166,16 +209,12 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                if not player.ai_mode:  # 手動モードの時だけスペースで発射
-                    player.shoot()
-            # 【追加】zキー（小文字）が押されたら、AI無双モードをオン・オフ切り替え
             if event.key == pygame.K_z:
                 player.ai_mode = not player.ai_mode
 
     all_sprites.update()
 
-    # 衝突判定
+    # 自機の弾と敵の衝突判定
     hits = pygame.sprite.groupcollide(mobs, bullets, True, True)
     for hit in hits:
         score += 10
@@ -183,21 +222,31 @@ while running:
         all_sprites.add(m)
         mobs.add(m)
 
-    hits_player = pygame.sprite.spritecollide(player, mobs, False)
-    if hits_player:
-        running = False
+    # 自機と敵の本体衝突判定（即死せず、HPを35減らす）
+    hits_player = pygame.sprite.spritecollide(player, mobs, True)
+    for hit in hits_player:
+        if player.hit(35):
+            running = False
+        # 当たった敵は消えるので、新しい敵を補充
+        m = Mob()
+        all_sprites.add(m)
+        mobs.add(m)
 
-    hits_bullet = pygame.sprite.spritecollide(player, enemy_bullets, False)
-    if hits_bullet:
-        running = False
+    # 自機と敵の弾の衝突判定（即死せず、HPを20減らす）
+    hits_bullet = pygame.sprite.spritecollide(player, enemy_bullets, True)
+    for hit in hits_bullet:
+        if player.hit(20):
+            running = False
 
     screen.fill(BLACK)
     all_sprites.draw(screen)
     
+    # 画面UIの表示（スコアとHPバー）
     score_text = font.render(f"Score: {score}", True, WHITE)
     screen.blit(score_text, (10, 10))
+    draw_hp_bar(screen, WIDTH - 120, 15, player.hp)
     
-    # 【追加】無双中の画面インジケーター表示
+    # 無双中の画面インジケーター表示
     if player.ai_mode:
         ai_text = font.render("AI AUTO MODE ACTIVE", True, PURPLE)
         screen.blit(ai_text, (WIDTH // 2 - 130, HEIGHT - 50))
