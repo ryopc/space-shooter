@@ -169,8 +169,8 @@ while running:
             if event.key == pygame.K_SPACE:
                 if not player.ai_mode:  # 手動モードの時だけスペースで発射
                     player.shoot()
-            # 【追加】Zキーが押されたら、AI無双モードをオン・オフ切り替え
-            if event.key == pygame.K_Z:
+            # 【追加】zキー（小文字）が押されたら、AI無双モードをオン・オフ切り替え
+            if event.key == pygame.K_z:
                 player.ai_mode = not player.ai_mode
 
     all_sprites.update()
